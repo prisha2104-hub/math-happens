@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+@theme {
+  --color-*: initial;
+
+  /* Warm paper backgrounds */
+  --color-paper: #f7f3eb;
+  --color-paper-deep: #efe9dd;
+  --color-surface: #fffdf8;
+
+  /* Charcoal typography */
+  --color-ink: #1f1c18;
+  --color-ink-soft: #4a453e;
+  --color-muted: #7d766c;
+  --color-faint: #a89f92;
+
+  /* Borders */
+  --color-line: #e5ddd0;
+  --color-line-strong: #cfc5b4;
+
+  /* Restrained orange-red accent */
+  --color-accent: #d3512f;
+  --color-accent-strong: #b53f22;
+  --color-accent-soft: #fbe8e1;
+
+  /* Feedback */
+  --color-good: #2c7a4b;
+  --color-good-soft: #e2f1e6;
+  --color-bad: #b3261e;
+  --color-bad-soft: #fbe5e2;
+
+  --color-white: #ffffff;
+  --color-transparent: transparent;
+
+  --font-sans: var(--font-instrument-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-instrument-serif), "Iowan Old Style", Georgia, serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, "SF Mono", Menlo, monospace;
+
+  --shadow-card: 0 1px 2px rgba(31, 28, 24, 0.04), 0 8px 24px -16px rgba(31, 28, 24, 0.18);
+
+  --animate-rise: rise 260ms ease-out;
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Remove number-input spinners so the answer field stays clean. */
+input[type="text"]::-webkit-outer-spin-button,
+input[type="text"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+}
