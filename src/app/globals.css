@@ -38,12 +38,14 @@
 
   --shadow-card: 0 1px 2px rgba(31, 28, 24, 0.04), 0 8px 24px -16px rgba(31, 28, 24, 0.18);
 
-  --animate-rise: rise 260ms ease-out;
+  /* Short, and starting part-way in: answer feedback has to be legible the
+     moment it appears, not a quarter of a second later. */
+  --animate-rise: rise 150ms ease-out;
 
   @keyframes rise {
     from {
-      opacity: 0;
-      transform: translateY(4px);
+      opacity: 0.35;
+      transform: translateY(3px);
     }
     to {
       opacity: 1;

@@ -1,6 +1,6 @@
 import { type Rational, compare, gcd, lcm, rational } from "@/lib/math/rational";
 import type { Rng } from "../rng";
-import type { Difficulty, Operation, RawProblem } from "../types";
+import type { ArithmeticOperation, Difficulty, RawProblem } from "../types";
 
 /** Proper fraction in lowest terms with the given denominator. */
 export function properFraction(rng: Rng, den: number): Rational {
@@ -112,7 +112,7 @@ function division(rng: Rng, difficulty: Difficulty): RawProblem {
   return { variant: `frac-div-${difficulty}`, operands };
 }
 
-export function generateFractionProblem(rng: Rng, operation: Operation, difficulty: Difficulty): RawProblem {
+export function generateFractionProblem(rng: Rng, operation: ArithmeticOperation, difficulty: Difficulty): RawProblem {
   switch (operation) {
     case "addition":
       return addition(rng, difficulty);

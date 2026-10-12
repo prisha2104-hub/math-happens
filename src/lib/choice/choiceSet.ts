@@ -1,6 +1,7 @@
-import { formatOperand } from "@/lib/engine/generate";
+import { answerDisplay } from "@/lib/engine/answer";
 import type { Rng } from "@/lib/engine/rng";
 import type { Question } from "@/lib/engine/types";
+import { roundTo } from "@/lib/engine/units";
 import { type Rational, equals } from "@/lib/math/rational";
 import { distractorCandidates, fallbackDistractors, isSensibleDistractor, tagPriority } from "./distractors";
 import type { ChoiceOption, ChoiceSet, Distractor, ErrorTag } from "./types";
@@ -63,13 +64,45 @@ function shuffle<T>(items: T[], rng: Rng): T[] {
   return out;
 }
 
-/** Four options with the correct one in a uniformly random position. */
+/**
+ * An option as it will be shown. Finance answers are rounded to the place the
+ * question asks for and carry their unit, so the value stored with the attempt
+ * is exactly the value the user picked off the screen.
+ */
+function toOption(question: Question, value: Rational, tag: ErrorTag | null): ChoiceOption {
+  const rounded = question.answerPlaces === undefined ? value : roundTo(value, question.answerPlaces);
+  return { value: rounded, text: answerDisplay(question, rounded), tag };
+}
+
+/**
+ * Four options with the correct one in a uniformly random position.
+ *
+ * Options are made unique by what they *say*, not only by their exact value:
+ * two different values that round to the same displayed answer would give a
+ * question two correct-looking options, so the second is dropped and replaced.
+ */
 export function buildChoiceSet(question: Question, rng: Rng): ChoiceSet {
-  const distractors = selectDistractors(question, rng);
-  const options: ChoiceOption[] = [
-    { value: question.answer, text: question.answerText, tag: null },
-    ...distractors.map((d) => ({ value: d.value, text: formatOperand(d.value, question.numberType), tag: d.tag })),
-  ];
+  const correct = toOption(question, question.answer, null);
+  const options: ChoiceOption[] = [correct];
+  const seen = new Set([correct.text]);
+  const take = (value: Rational, tag: ErrorTag): boolean => {
+    if (options.length >= CHOICE_COUNT) return false;
+    const option = toOption(question, value, tag);
+    if (seen.has(option.text) || equals(option.value, correct.value)) return false;
+    seen.add(option.text);
+    options.push(option);
+    return true;
+  };
+
+  for (const distractor of selectDistractors(question, rng, CHOICE_COUNT - 1)) take(distractor.value, distractor.tag);
+  if (options.length < CHOICE_COUNT) {
+    // Dedupe by display can leave us short; top up from the generic ladder,
+    // which steps away from the answer in its own finest place.
+    for (const extra of fallbackDistractors(question, CHOICE_COUNT, options.map((o) => o.value))) {
+      if (options.length >= CHOICE_COUNT) break;
+      take(extra.value, extra.tag);
+    }
+  }
   const shuffled = shuffle(options, rng);
   return { options: shuffled, correctIndex: shuffled.findIndex((o) => o.tag === null) };
 }

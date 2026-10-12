@@ -13,6 +13,7 @@ import { formatClock, formatDuration, formatPercent } from "@/lib/math/format";
 import type { Attempt, EndReason, SessionSummary } from "@/lib/session/types";
 import { describeSettings } from "@/components/setup/describeSettings";
 import { BreakdownTable } from "./BreakdownTable";
+import { ComparisonSummary } from "./ComparisonSummary";
 import { HistoryTable } from "./HistoryTable";
 
 export type SaveState = "saving" | "saved" | "failed";
@@ -48,6 +49,13 @@ function formatRate(value: number): string {
 export function ResultsScreen({ summary, attempts, saveState, actions, title }: ResultsScreenProps) {
   const empty = summary.attempted === 0;
   const endedAt = new Date(summary.endedAt);
+  // Median time per correct answer is the honest speed figure; sessions
+  // recorded before it existed show the plain average and say so.
+  const median = summary.medianCorrectResponseMs;
+  const perAnswer =
+    typeof median === "number"
+      ? { value: formatDuration(median), hint: "median of correct answers" }
+      : { value: formatDuration(summary.averageResponseMs), hint: "average of all answers" };
 
   const operationRows = OPERATIONS.flatMap((op) => {
     const data = summary.byOperation[op];
@@ -71,16 +79,21 @@ export function ResultsScreen({ summary, attempts, saveState, actions, title }: 
         <div className="flex shrink-0 items-center gap-2">{actions}</div>
       </section>
 
+      {/* Four figures worth reading, with the rest of the counts on one line
+          underneath: the breakdown below already carries the detail. */}
       <section className="mt-8 grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="Session results">
-        <Stat label="Net score / min" value={empty ? "—" : formatRate(summary.netScorePerMinute)} tone="accent" hint="(correct − incorrect) ÷ minutes" />
-        <Stat label="Correct / min" value={empty ? "—" : summary.correctPerMinute.toFixed(1)} />
-        <Stat label="Accuracy" value={empty ? "—" : formatPercent(summary.accuracy)} hint={empty ? undefined : `${summary.correct} of ${summary.attempted}`} />
+        <Stat label="Accuracy" value={empty ? "—" : formatPercent(summary.accuracy)} hint={empty ? undefined : `${summary.correct} of ${summary.attempted} correct`} />
+        <Stat label="Per answer" value={empty ? "—" : perAnswer.value} hint={empty ? undefined : perAnswer.hint} />
         <Stat label="Total time" value={formatClock(summary.elapsedMs)} hint="active time, pauses excluded" />
-        <Stat label="Answered" value={summary.attempted} />
-        <Stat label="Correct" value={summary.correct} tone="good" />
-        <Stat label="Incorrect" value={summary.incorrect} tone={summary.incorrect > 0 ? "bad" : "default"} />
-        <Stat label="Avg response" value={empty ? "—" : formatDuration(summary.averageResponseMs)} />
+        <Stat label="Net score / min" value={empty ? "—" : formatRate(summary.netScorePerMinute)} tone="accent" hint="(correct − incorrect) ÷ minutes" />
       </section>
+      {!empty && (
+        <p className="mt-2 text-xs text-muted">
+          {summary.attempted} answered · <span className="text-good">{summary.correct} right</span> ·{" "}
+          <span className={summary.incorrect > 0 ? "text-bad" : undefined}>{summary.incorrect} wrong</span> · {summary.correctPerMinute.toFixed(1)} correct per minute · average{" "}
+          {formatDuration(summary.averageResponseMs)} per answer
+        </p>
+      )}
 
       {empty ? (
         <section className="mt-8 rounded-xl border border-dashed border-line-strong px-6 py-10 text-center">
@@ -89,6 +102,8 @@ export function ResultsScreen({ summary, attempts, saveState, actions, title }: 
         </section>
       ) : (
         <>
+          <ComparisonSummary summary={summary} attempts={attempts} />
+
           <section className="mt-8" aria-label="Breakdown">
             <BreakdownTable
               sections={[

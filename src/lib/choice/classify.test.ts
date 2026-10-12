@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { buildQuestion } from "@/lib/engine/generate";
-import type { NumberType, Operation } from "@/lib/engine/types";
+import type { ArithmeticOperation, NumberType } from "@/lib/engine/types";
 import { rational } from "@/lib/math/rational";
 import { classifyOpenAnswer } from "./classify";
 
-function q(op: Operation, type: NumberType, a: [number, number], b: [number, number]) {
+function q(op: ArithmeticOperation, type: NumberType, a: [number, number], b: [number, number]) {
   return buildQuestion("q", { variant: "test", operands: [rational(...a), rational(...b)] }, op, type, "medium");
 }
 

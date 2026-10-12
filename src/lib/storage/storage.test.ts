@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { PracticePlan } from "@/lib/adaptive/plan";
 import { DEFAULT_SETTINGS, type SessionSummary, type TrainerSettings } from "@/lib/session/types";
 import type { Attempt } from "@/lib/session/types";
 import { makeAttempt, makeSummary } from "@/lib/testing/fixtures";
@@ -122,14 +123,18 @@ describe("repositories", () => {
 
   it("keeps sessions in order, replaces duplicates and prunes the oldest", async () => {
     const adapter = new MemoryAdapter();
-    const repos = createRepositories(adapter);
-    for (let i = 0; i < MAX_STORED_SESSIONS + 5; i += 1) {
+    // The limit is injected so this writes 25 records rather than 505; the
+    // default is asserted separately.
+    const LIMIT = 20;
+    expect(MAX_STORED_SESSIONS).toBe(500);
+    const repos = createRepositories(adapter, { maxSessions: LIMIT });
+    for (let i = 0; i < LIMIT + 5; i += 1) {
       await repos.saveCompletedSession(summary(`s${i}`, i), [attempt(`s${i}`, 1)]);
     }
     const sessions = await repos.sessions.list();
-    expect(sessions).toHaveLength(MAX_STORED_SESSIONS);
+    expect(sessions).toHaveLength(LIMIT);
     expect(sessions[0]?.id).toBe("s5");
-    expect(sessions[sessions.length - 1]?.id).toBe(`s${MAX_STORED_SESSIONS + 4}`);
+    expect(sessions[sessions.length - 1]?.id).toBe(`s${LIMIT + 4}`);
     expect(await repos.attempts.listBySession("s0")).toEqual([]);
     expect(await adapter.read(attemptsKey("s4"))).toBeNull();
     expect(await repos.attempts.listBySession("s5")).toHaveLength(1);
@@ -138,6 +143,22 @@ describe("repositories", () => {
     const after = await repos.sessions.list();
     expect(after.filter((s) => s.id === "s5")).toHaveLength(1);
     expect(after[after.length - 1]?.id).toBe("s5");
+  });
+
+  it("keeps an Improve session's plan so it is not read back as ordinary practice", async () => {
+    const adapter = new MemoryAdapter();
+    const repos = createRepositories(adapter);
+    const plan: PracticePlan = {
+      targets: [{ target: { numberType: "integer", operation: "division", difficulty: "hard" }, weight: 1, reason: "weak-accuracy", label: "Two-digit divisors" }],
+      createdAt: 7,
+      summary: "focused practice",
+      coldStart: false,
+    };
+    const adaptive = makeSummary({ id: "improve", endedAt: 10, settings: { ...DEFAULT_SETTINGS, plan } });
+    await repos.saveCompletedSession(adaptive, []);
+    const [stored] = await repos.sessions.list();
+    expect(stored?.settings.plan?.targets).toHaveLength(1);
+    expect(stored?.settings.plan?.summary).toBe("focused practice");
   });
 
   it("ignores malformed session and attempt records", async () => {

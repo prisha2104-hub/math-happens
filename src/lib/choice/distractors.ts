@@ -353,6 +353,109 @@ function fractionCandidates(question: Question, emit: Emit): void {
 }
 
 /**
+ * Mistakes that produce a wrong finance answer. These are the slips the
+ * families are actually about — taking a percentage against the new value
+ * instead of the old one, averaging without the weights, adding returns
+ * instead of compounding them, or answering in the wrong unit — so a wrong
+ * multiple-choice pick says something about what was misunderstood.
+ */
+function financeCandidates(question: Question, emit: Emit): void {
+  const finance = question.meta.finance;
+  if (!finance) return;
+  const answer = question.exactAnswer ?? question.answer;
+  const [first = answer, second = answer, third = answer] = finance.inputs;
+
+  // Answering in the neighbouring unit is the characteristic finance slip.
+  emit(shiftDecimal(answer, 2), "unit-scale");
+  emit(shiftDecimal(answer, -2), "unit-scale");
+  emit(shiftDecimal(answer, 1), "decimal-placement");
+  emit(shiftDecimal(answer, -1), "decimal-placement");
+
+  switch (finance.subtype) {
+    case "percent-of":
+      // Taking the complement, or the base as a percentage of the percentage.
+      emit(mul(second, div(sub(fromInteger(100), first), fromInteger(100))), "wrong-base");
+      if (!isZero(first)) emit(div(second, first), "incorrect-operation");
+      emit(sub(second, first), "incorrect-operation");
+      break;
+    case "reverse-percent":
+      // Multiplying by the percentage instead of dividing by it.
+      emit(mul(first, div(second, fromInteger(100))), "reciprocal-error");
+      emit(mul(first, second), "incorrect-operation");
+      emit(add(first, mul(first, div(second, fromInteger(100)))), "wrong-base");
+      break;
+    case "percent-change": {
+      const changed = abs(sub(second, first));
+      // Dividing the change by the finishing value instead of the start.
+      if (!isZero(second)) emit(mul(div(changed, second), fromInteger(100)), "wrong-base");
+      emit(changed, "unit-scale");
+      if (!isZero(first)) emit(mul(div(second, first), fromInteger(100)), "wrong-base");
+      break;
+    }
+    case "fraction-to-percent":
+      if (!isZero(first)) emit(mul(div(fromInteger(1), first), fromInteger(100)), "reciprocal-error");
+      emit(first, "unit-scale");
+      break;
+    case "weighted-average": {
+      // The plain average of the two returns, weights ignored.
+      emit(div(add(second, third), fromInteger(2)), "unweighted-average");
+      emit(add(second, third), "incorrect-operation");
+      emit(sub(second, third), "incorrect-operation");
+      emit(neg(answer), "sign-error");
+      break;
+    }
+    case "successive-returns":
+      // Adding the two returns instead of compounding them.
+      emit(add(first, second), "compounding-error");
+      emit(neg(answer), "sign-error");
+      break;
+    case "basis-points":
+      // The relative move of the yield rather than the move in points.
+      if (!isZero(first)) emit(mul(div(sub(second, first), first), fromInteger(100)), "wrong-base");
+      break;
+    case "profit-margin": {
+      const profit = finance.mode === "costs" ? sub(first, second) : second;
+      // Margin on profit rather than on revenue, or revenue over profit.
+      if (!isZero(profit)) emit(mul(div(first, profit), fromInteger(100)), "reciprocal-error");
+      if (!isZero(sub(first, profit))) emit(mul(div(profit, sub(first, profit)), fromInteger(100)), "wrong-base");
+      break;
+    }
+    case "valuation-multiple":
+      if (finance.mode === "price-from-pe") {
+        if (!isZero(second)) emit(div(first, second), "reciprocal-error");
+        emit(add(first, second), "incorrect-operation");
+      } else {
+        if (!isZero(first)) emit(div(second, first), "reciprocal-error");
+        emit(sub(first, second), "incorrect-operation");
+      }
+      break;
+    case "enterprise-value":
+      // The classic bridge slips: adding cash, or dropping the debt.
+      emit(finance.mode === "equity" ? sub(sub(first, second), third) : add(add(first, second), third), "sign-error");
+      emit(finance.mode === "equity" ? add(first, third) : sub(first, third), "incorrect-operation");
+      emit(sub(add(first, third), second), "sign-error");
+      break;
+    case "expected-value": {
+      const chance = div(first, fromInteger(100));
+      // Ignoring the losing leg, or weighting it the wrong way round.
+      emit(mul(chance, second), "wrong-base");
+      emit(sub(mul(sub(fromInteger(1), chance), second), mul(chance, third)), "wrong-base");
+      emit(sub(second, third), "unweighted-average");
+      emit(neg(answer), "sign-error");
+      break;
+    }
+    case "compounding": {
+      const years = Math.max(1, Math.min(5, Math.round(toNumber(third))));
+      const simple = mul(second, fromInteger(years));
+      // Simple interest instead of compound.
+      emit(finance.mode === "total-return" ? simple : mul(first, add(fromInteger(1), div(simple, fromInteger(100)))), "compounding-error");
+      break;
+    }
+  }
+  slipCandidates(answer, emit);
+}
+
+/**
  * Every plausible wrong answer for the question, in rough priority order,
  * before any filtering. May contain duplicates and values equal to the
  * correct answer; `buildChoiceSet` removes those.
@@ -362,6 +465,10 @@ export function distractorCandidates(question: Question): Distractor[] {
   const emit: Emit = (value, tag) => {
     if (value !== null) out.push({ value, tag });
   };
+  if (question.operation === "finance") {
+    financeCandidates(question, emit);
+    return out;
+  }
   switch (question.numberType) {
     case "integer":
       integerCandidates(question, emit);
@@ -386,14 +493,23 @@ export function isSensibleDistractor(question: Question, candidate: Distractor):
   if (isZero(value) && !isZero(answer)) return false;
 
   // Keep the sign consistent unless the mistake is specifically about the sign
-  // or about applying a different operation.
-  const signSensitive = tag !== "sign-error" && tag !== "incorrect-operation";
+  // or about combining the numbers differently — a return taken against the
+  // wrong base or without its weights can genuinely flip sign.
+  const signSensitive = tag !== "sign-error" && tag !== "incorrect-operation" && tag !== "wrong-base" && tag !== "unweighted-average" && tag !== "compounding-error";
   if (signSensitive && !isNegative(answer) && isNegative(value)) return false;
   if (signSensitive && isNegative(answer) && !isNegative(value) && !isZero(value)) return false;
 
   const magnitude = Math.abs(toNumber(value));
   const answerMagnitude = Math.abs(toNumber(answer));
   if (magnitude > Math.max(answerMagnitude * 1000, 10_000)) return false;
+
+  // Finance answers are shown rounded to the place the question asks for, so
+  // a candidate only has to be a terminating decimal; "0.35" next to "35 bps"
+  // is exactly the mistake worth offering.
+  if (question.operation === "finance") {
+    const places = terminatingDecimalPlaces(value);
+    return places !== null && places <= 4;
+  }
 
   switch (question.numberType) {
     case "integer":
@@ -410,6 +526,9 @@ export function isSensibleDistractor(question: Question, candidate: Distractor):
 /** Ordering of mistake families to draw from, most characteristic first. */
 export function tagPriority(question: Question): ErrorTag[] {
   const { numberType, operation } = question;
+  if (operation === "finance") {
+    return ["wrong-base", "reciprocal-error", "unweighted-average", "compounding-error", "unit-scale", "incorrect-operation", "sign-error", "decimal-placement", "arithmetic-slip"];
+  }
   if (numberType === "fraction") {
     return operation === "addition" || operation === "subtraction"
       ? ["denominator-error", "incorrect-operation", "arithmetic-slip", "sign-error"]

@@ -1,5 +1,5 @@
 import type { TargetSpec } from "@/lib/engine/targeted";
-import type { Question } from "@/lib/engine/types";
+import type { ArithmeticOperation, Question } from "@/lib/engine/types";
 import type { Rational } from "@/lib/math/rational";
 
 export const TECHNIQUE_CATEGORIES = ["division", "multiplication", "addition-subtraction", "fractions"] as const;
@@ -37,5 +37,5 @@ export interface Technique {
   /** Skill to draw practice questions from; questions are then filtered with `applies`. */
   practice: TargetSpec;
   /** Operands for the library's standing worked example. */
-  example: { operation: Question["operation"]; numberType: Question["numberType"]; a: [number, number]; b: [number, number] };
+  example: { operation: ArithmeticOperation; numberType: Question["numberType"]; a: [number, number]; b: [number, number] };
 }

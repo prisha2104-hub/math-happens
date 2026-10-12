@@ -33,12 +33,12 @@ Then open <http://localhost:3000>.
 
 | Section        | Route         | Answers the question                                            |
 | -------------- | ------------- | --------------------------------------------------------------- |
-| **Train**      | `/`           | Ordinary practice with your own operations, number types, difficulty, timer and answer format. |
+| **Train**      | `/`           | Ordinary practice with your own operations, number types, difficulty, timer and answer format, plus optional advanced control over operand ranges and the question mix. |
 | **Improve**    | `/improve`    | *What should I practise next?* An adaptive plan built from weak skills, slow skills and skills due for review, plus a review calendar. |
 | **History**    | `/history`    | *How am I performing and am I improving?* Totals, trends, breakdowns and detected patterns, filterable by operation, number type, difficulty, answer format and period. |
 | **Notebook**   | `/notebook`   | *What am I struggling with?* Every miss with a diagnosis, the question's structure, a faster technique worked on that exact question, and a "Practice similar" action. |
 | **Techniques** | `/techniques` | *How can I solve these faster?* A library of mental-math methods with verified worked examples and a drill for each. |
-| **Data**       | `/data`       | Export/import a versioned JSON backup, see where data lives, start over. |
+| **Data**       | `/data`       | Export/import a versioned JSON backup, see where data lives, clear practice history (keeping settings) or start over completely. |
 
 ### Answer formats
 
@@ -68,6 +68,46 @@ answer) and are never blended into a single figure anywhere in the app.
 Division is generated from a divisor and quotient, so integer division is
 always exact and decimal division always terminates. Hard subtraction
 occasionally produces negative results.
+
+### Advanced settings
+
+A collapsed section at the bottom of the Train setup, off by default. While it
+is off nothing changes: the difficulty tiers drive generation exactly as above.
+Switching it on makes four groups the source of truth, replacing the Operations
+and Numbers toggles:
+
+| Group                 | What it controls                                                                                 |
+| --------------------- | ------------------------------------------------------------------------------------------------ |
+| **Operation mix**     | Whole percentages per operation, summing to 100. `0 %` excludes an operation.                    |
+| **Number format mix** | Whole percentages for integers / decimals / fractions, summing to 100, independent of the operation mix — so fractions appear across every chosen operation. |
+| **Number ranges**     | Minimum and maximum operand per operation; both operands of a question obey the range.           |
+| **Fraction ranges**   | Minimum and maximum numerator and denominator for every fraction operand.                        |
+
+- Each percentage group shows a running total and the session cannot start
+  until it reads exactly 100 %. Range problems are explained next to the field
+  that caused them, and the footer points at the highlighted fields.
+- **Finite sessions** (untimed with a question limit) get a schedule built up
+  front by largest-remainder apportionment, so the counts match the
+  percentages as closely as the question count permits — 20 questions at
+  40/20/30/10 is exactly 8/4/6/2. **Open-ended and timed sessions** sample the
+  same percentages by weight.
+- Ranges apply to integer questions, and the fraction ranges to fraction
+  questions. Decimal questions keep following the difficulty tier, because a
+  whole-number operand range has no sensible meaning for decimal places.
+  Difficulty still decides the decimal tier and whether Hard allows the
+  occasional negative result.
+- Division still builds the dividend from divisor × quotient so it stays
+  exact, which needs a maximum of at least twice the minimum; narrower ranges
+  are rejected with that explanation.
+- Denominators start at 1 and can never be zero. Numerators at or above the
+  denominator are allowed, so improper fractions such as `7/4` appear when the
+  ranges permit; answers are still shown in lowest terms and any equivalent
+  written form is accepted.
+- **Adaptive practice stays inside the ranges and mixes.** Improve-mode plans
+  drop weak and due skills that fall outside the chosen operations and
+  formats, and targeted generation receives the same ranges.
+- Settings persist between visits, and **Reset to defaults** restores every
+  group without switching the feature off.
 
 ### How the adaptive parts work
 
@@ -110,6 +150,38 @@ migration hooks. The Data page exports a versioned JSON file and imports one
 either by merging (adds unknown sessions, keeps current settings) or by
 replacing everything after an explicit confirmation.
 
+Storage is per browser **and per origin**, so data saved while the app ran on
+one port is not visible on another.
+
+### Moving your history to a deployed copy
+
+A deployed build (Vercel or anywhere else) is a different origin from
+`localhost:3000`, so **none of your local practice history follows it
+automatically** — nothing is uploaded anywhere, and IndexedDB is keyed by
+origin. To keep it:
+
+1. On the machine and browser you have been practising in, open `/data` and
+   choose **Export** — it writes a versioned `math-happens-*.json` file with
+   every session, every answer, the review calendar and your settings.
+2. Open the deployed URL in the same browser and use **Import → Merge** on
+   that file. Merge only adds sessions the store does not already have and
+   leaves the settings it finds in place, so it is safe to run twice.
+3. Keep the export file. It is the only backup; clearing browser data for the
+   origin deletes everything else.
+
+Exporting before a deployment is also the only way to carry history between
+browsers, profiles or machines.
+
+Two clearing actions, both behind a confirmation:
+
+- **Clear practice history** removes sessions, attempts and the review
+  calendar, and keeps your settings.
+- **Clear all data** removes everything, settings included.
+
+Both also purge the localStorage copy the one-time IndexedDB migration leaves
+behind, so a cleared record cannot be copied back the next time the migration
+runs.
+
 ## Architecture
 
 ```
@@ -121,10 +193,12 @@ src/
   lib/
     math/                 Exact Rational arithmetic and formatting
     engine/               Question generation, seeded RNG, duplicate prevention, metadata,
-                          targeted generation (facet / feature filtering)
+                          targeted generation (facet / feature filtering), advanced settings
+                          (ranges + mixes) and the range-driven generators
     choice/               Distractor models, choice-set builder, open-answer error classification
     answer/               Answer parsing and validation
-    session/              Pure session reducer (submit / choose / advance / pause / tick / end), scoring
+    session/              Pure session reducer (submit / choose / advance / pause / tick / end), scoring,
+                          question-mix apportionment and weighted sampling
     analysis/             Facets and features, aggregation, trends, weakness detection, reconstruction
     adaptive/             Practice plan builder and weighted target selection
     review/               Spaced-review schedule and queue
@@ -145,7 +219,7 @@ plain data.
 npm test
 ```
 
-The suite (456 tests) covers exact arithmetic, answer parsing and
+The suite (519 tests) covers exact arithmetic, answer parsing and
 equivalence, every operation × number type × difficulty × answer format
 combination (with independent BigInt verification of generated answers),
 distractor sets (exactly one correct option, exact distinctness, equivalent
@@ -154,14 +228,28 @@ flow (reveal, double-submission, expiry during reveal, scoring), settings and
 record migration, aggregation, trends, weakness detection with insufficient
 data guards, targeted generation, plan building and weighting, review
 scheduling, every technique's worked example plus thousands of generated
-explanations, storage migration, and export/import integrity.
+explanations, storage migration, export/import integrity, clearing history
+without losing settings, advanced-settings coercion and per-field validation,
+percentage apportionment and weighted sampling, and range-driven generation
+(operands inside their range, exact division, non-zero denominators,
+degenerate ranges, and unchanged output while advanced settings are off).
 
 ## Known limitations
 
-- Data is per browser; export/import is the only way to move it.
+- Data is per browser and per origin; export/import is the only way to move it.
+- Finance maths answers are graded on the single figure the question asks for,
+  in the unit it names; a wrong unit is wrong, not partially credited.
+- Finance value style and ranges steer the money amounts and bases, not every
+  number in a prompt (chances, rates and yields come from the difficulty tier).
+- The per-answer median only exists for sessions recorded after it was added;
+  older sessions show their plain average and say so.
 - Open-answer diagnosis is deliberately conservative: only exact matches to a
   modelled mistake are tagged, so many misses stay "unclassified".
-- Fraction operands are always proper fractions; mixed-number operands are not
-  generated.
+- Fraction operands are proper fractions unless advanced fraction ranges allow
+  improper ones; mixed-number operands are never generated.
+- Advanced number ranges do not reach decimal questions, which keep following
+  the difficulty tier.
+- Technique drills keep their own generators, so advanced ranges do not apply
+  to them (the technique has to keep applying to the question).
 - Trends are per session and need at least two sessions to draw.
 - Light theme only.

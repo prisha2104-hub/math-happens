@@ -22,9 +22,11 @@ import {
   MIN_DURATION_MINUTES,
   MIN_QUESTION_LIMIT,
   type TrainerSettings,
+  effectiveOperations,
   validateSettings,
 } from "@/lib/session/types";
 import { cx } from "@/lib/ui/cx";
+import { AdvancedSettings } from "./AdvancedSettings";
 import { describeSettings } from "./describeSettings";
 
 interface SetupScreenProps {
@@ -80,6 +82,10 @@ export function SetupScreen({ settings, onChange, onStart }: SetupScreenProps) {
   const customLimitId = useId();
   const update = (patch: Partial<TrainerSettings>) => onChange({ ...settings, ...patch });
   const choice = limitChoice(settings.questionLimit);
+  const advancedOn = settings.advanced.enabled;
+  const selectedOperations = effectiveOperations(settings);
+  const financeSelected = selectedOperations.includes("finance");
+  const financeOnly = financeSelected && selectedOperations.length === 1;
 
   return (
     <div className="flex flex-1 flex-col">
@@ -203,18 +209,26 @@ export function SetupScreen({ settings, onChange, onStart }: SetupScreenProps) {
               onChange={(difficulty) => update({ difficulty })}
               options={DIFFICULTIES.map((d) => ({ value: d, label: DIFFICULTY_LABELS[d] }))}
             />
-            <p className="text-sm leading-relaxed text-ink-soft">
-              {DIFFICULTY_NOTES[settings.difficulty].summary}{" "}
-              <span className="tabular font-mono text-xs text-muted">{DIFFICULTY_NOTES[settings.difficulty].examples}</span>
-            </p>
+            {advancedOn ? (
+              <p className="text-sm leading-relaxed text-ink-soft">
+                Integer and fraction sizes come from your advanced ranges instead. Difficulty still sets the decimal tier and allows the occasional negative
+                result on Hard.
+              </p>
+            ) : (
+              <p className="text-sm leading-relaxed text-ink-soft">
+                {DIFFICULTY_NOTES[settings.difficulty].summary}{" "}
+                <span className="tabular font-mono text-xs text-muted">{DIFFICULTY_NOTES[settings.difficulty].examples}</span>
+              </p>
+            )}
           </Row>
 
-          <Row label="Operations" hint="Choose at least one.">
+          <Row label="Operations" hint={advancedOn ? "Set by the operation mix in advanced settings." : "Choose at least one."}>
             <div className="flex flex-wrap gap-2">
               {OPERATIONS.map((op) => (
                 <ToggleChip
                   key={op}
-                  pressed={settings.operations.includes(op)}
+                  pressed={advancedOn ? settings.advanced.operationMix[op] > 0 : settings.operations.includes(op)}
+                  disabled={advancedOn}
                   onToggle={() => update({ operations: toggleItem(settings.operations, op) })}
                   glyph={OPERATION_SYMBOLS[op]}
                 >
@@ -222,14 +236,31 @@ export function SetupScreen({ settings, onChange, onStart }: SetupScreenProps) {
                 </ToggleChip>
               ))}
             </div>
+            {financeSelected && (
+              <p className="text-sm leading-relaxed text-ink-soft">
+                Short word problems: percentages and reverse percentages, percentage changes, fraction and decimal conversions, weighted averages, basis points,
+                margins, multiples, the equity–enterprise value bridge, expected value and compounding. Every question states its units and says when to round.
+                Advanced settings below choose which families appear.
+              </p>
+            )}
           </Row>
 
-          <Row label="Numbers" hint="Choose at least one. Mixed selections interleave at random.">
+          <Row
+            label="Numbers"
+            hint={
+              advancedOn
+                ? "Set by the number format mix in advanced settings."
+                : financeOnly
+                  ? "Not used: Finance maths brings its own numbers."
+                  : "Choose at least one. Mixed selections interleave at random."
+            }
+          >
             <div className="flex flex-wrap gap-2">
               {NUMBER_TYPES.map((type) => (
                 <ToggleChip
                   key={type}
-                  pressed={settings.numberTypes.includes(type)}
+                  pressed={advancedOn ? settings.advanced.formatMix[type] > 0 : settings.numberTypes.includes(type)}
+                  disabled={advancedOn}
                   onToggle={() => update({ numberTypes: toggleItem(settings.numberTypes, type) })}
                 >
                   {NUMBER_TYPE_LABELS[type]}
@@ -238,6 +269,8 @@ export function SetupScreen({ settings, onChange, onStart }: SetupScreenProps) {
             </div>
           </Row>
         </div>
+
+        <AdvancedSettings value={settings.advanced} onChange={(advanced) => update({ advanced })} />
 
         <div className="mt-8 flex flex-col gap-4 border-t border-line pt-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-h-5 text-sm">

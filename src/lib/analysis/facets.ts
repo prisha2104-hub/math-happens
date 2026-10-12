@@ -56,6 +56,30 @@ const FACET_LABELS: Record<string, string> = {
   "frac-sub": "Subtracting fractions",
   "frac-mul": "Multiplying fractions",
   "frac-div": "Dividing fractions",
+  // Questions built from the user's own ranges stay a separate skill from the
+  // difficulty tiers, so analysis never mixes a custom 5-digit sum with an easy one.
+  "int-add-custom": "Whole-number sums (your range)",
+  "int-sub-custom": "Whole-number differences (your range)",
+  "int-mul-custom": "Whole-number products (your range)",
+  "int-div-custom": "Whole-number quotients (your range)",
+  "frac-add-custom": "Adding fractions (your range)",
+  "frac-sub-custom": "Subtracting fractions (your range)",
+  "frac-mul-custom": "Multiplying fractions (your range)",
+  "frac-div-custom": "Dividing fractions (your range)",
+  // Finance maths: one facet per family, so weakness analysis and the review
+  // calendar treat each family as its own skill.
+  "fin-percent-of": "Percentages of a number",
+  "fin-reverse-percent": "Reverse percentages",
+  "fin-percent-change": "Percentage changes",
+  "fin-fraction-to-percent": "Fractions and decimals as percentages",
+  "fin-weighted-average": "Ratios and weighted averages",
+  "fin-successive-returns": "Successive returns",
+  "fin-basis-points": "Basis points and percentage points",
+  "fin-profit-margin": "Profit margins",
+  "fin-valuation-multiple": "Valuation multiples",
+  "fin-enterprise-value": "Enterprise and equity value",
+  "fin-expected-value": "Expected value",
+  "fin-compounding": "Compounding",
 };
 
 export function facetLabel(facet: string, numberType: NumberType, operation: Operation): string {

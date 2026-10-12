@@ -26,14 +26,14 @@ import {
   type Difficulty,
   NUMBER_TYPES,
   type NumberType,
-  OPERATIONS,
-  type Operation,
+  ARITHMETIC_OPERATIONS,
+  type ArithmeticOperation,
   type Question,
 } from "./types";
 
 const SAMPLE_SIZE = 300;
 
-function sample(operation: Operation, numberType: NumberType, difficulty: Difficulty, count = SAMPLE_SIZE): Question[] {
+function sample(operation: ArithmeticOperation, numberType: NumberType, difficulty: Difficulty, count = SAMPLE_SIZE): Question[] {
   const rng = createRng(0xc0ffee + count);
   const questions: Question[] = [];
   const recentKeys: string[] = [];
@@ -56,7 +56,7 @@ function stripCommas(text: string): string {
 }
 
 describe("illustrative problems from the brief", () => {
-  const cases: { op: Operation; type: NumberType; a: [number, number]; b: [number, number]; expression: string; answer: string }[] = [
+  const cases: { op: ArithmeticOperation; type: NumberType; a: [number, number]; b: [number, number]; expression: string; answer: string }[] = [
     { op: "division", type: "integer", a: [72, 1], b: [9, 1], expression: "72 ÷ 9", answer: "8" },
     { op: "division", type: "integer", a: [672, 1], b: [16, 1], expression: "672 ÷ 16", answer: "42" },
     { op: "division", type: "integer", a: [2736, 1], b: [24, 1], expression: "2,736 ÷ 24", answer: "114" },
@@ -96,7 +96,7 @@ describe("illustrative problems from the brief", () => {
 
 describe("every operation × number type × difficulty", () => {
   for (const numberType of NUMBER_TYPES) {
-    for (const operation of OPERATIONS) {
+    for (const operation of ARITHMETIC_OPERATIONS) {
       for (const difficulty of DIFFICULTIES) {
         describe(`${numberType} ${operation} ${difficulty}`, () => {
           const questions = sample(operation, numberType, difficulty);
@@ -176,7 +176,7 @@ describe("integer difficulty constraints", () => {
   const maxOperand = (q: Question) => Math.max(q.operands[0].num, q.operands[1].num);
 
   it("keeps easy problems within two-digit / times-table territory", () => {
-    for (const op of OPERATIONS) {
+    for (const op of ARITHMETIC_OPERATIONS) {
       for (const q of sample(op, "integer", "easy")) {
         if (op === "division") {
           expect(q.operands[0].num).toBeLessThanOrEqual(144);
@@ -238,7 +238,7 @@ describe("integer difficulty constraints", () => {
 
   it("grows in size with difficulty", () => {
     const mean = (qs: Question[]) => qs.reduce((sum, q) => sum + maxOperand(q), 0) / qs.length;
-    for (const op of OPERATIONS) {
+    for (const op of ARITHMETIC_OPERATIONS) {
       const easy = mean(sample(op, "integer", "easy"));
       const medium = mean(sample(op, "integer", "medium"));
       const hard = mean(sample(op, "integer", "hard"));
@@ -252,7 +252,7 @@ describe("decimal difficulty constraints", () => {
   const places = (text: string) => (text.includes(".") ? text.split(".")[1]?.length ?? 0 : 0);
 
   it("uses at most two decimal places per operand and terminating answers", () => {
-    for (const op of OPERATIONS) {
+    for (const op of ARITHMETIC_OPERATIONS) {
       for (const difficulty of DIFFICULTIES) {
         for (const q of sample(op, "decimal", difficulty)) {
           const { left, right } = splitExpression(q.expression);
@@ -288,7 +288,7 @@ describe("decimal difficulty constraints", () => {
   });
 
   it("always includes at least one non-integer operand", () => {
-    for (const op of OPERATIONS) {
+    for (const op of ARITHMETIC_OPERATIONS) {
       for (const difficulty of DIFFICULTIES) {
         for (const q of sample(op, "decimal", difficulty)) {
           expect(q.operands.some((o) => o.den !== 1), q.expression).toBe(true);
@@ -300,7 +300,7 @@ describe("decimal difficulty constraints", () => {
 
 describe("fraction difficulty constraints", () => {
   it("uses proper fractions in lowest terms", () => {
-    for (const op of OPERATIONS) {
+    for (const op of ARITHMETIC_OPERATIONS) {
       for (const difficulty of DIFFICULTIES) {
         for (const q of sample(op, "fraction", difficulty)) {
           for (const operand of q.operands) {
@@ -361,14 +361,14 @@ describe("mixed settings", () => {
     const counts: Record<string, number> = {};
     for (let i = 0; i < 1200; i += 1) {
       const q = generateQuestion({
-        settings: { operations: OPERATIONS, numberTypes: NUMBER_TYPES, difficulty: "medium" },
+        settings: { operations: ARITHMETIC_OPERATIONS, numberTypes: NUMBER_TYPES, difficulty: "medium" },
         rng,
         id: `q${i}`,
       });
       counts[q.operation] = (counts[q.operation] ?? 0) + 1;
       counts[q.numberType] = (counts[q.numberType] ?? 0) + 1;
     }
-    for (const op of OPERATIONS) expect(counts[op]).toBeGreaterThan(1200 * 0.15);
+    for (const op of ARITHMETIC_OPERATIONS) expect(counts[op]).toBeGreaterThan(1200 * 0.15);
     for (const type of NUMBER_TYPES) expect(counts[type]).toBeGreaterThan(1200 * 0.2);
   });
 
@@ -395,7 +395,7 @@ describe("mixed settings", () => {
     const make = () => {
       const rng = createRng(2024);
       return Array.from({ length: 20 }, (_, i) =>
-        generateQuestion({ settings: { operations: OPERATIONS, numberTypes: NUMBER_TYPES, difficulty: "hard" }, rng, id: `q${i}` }).expression,
+        generateQuestion({ settings: { operations: ARITHMETIC_OPERATIONS, numberTypes: NUMBER_TYPES, difficulty: "hard" }, rng, id: `q${i}` }).expression,
       );
     };
     expect(make()).toEqual(make());

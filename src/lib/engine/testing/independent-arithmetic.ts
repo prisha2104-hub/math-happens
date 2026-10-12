@@ -3,7 +3,7 @@
  * questions. It works on the *display strings* of the expression with BigInt,
  * sharing no code with the Rational implementation.
  */
-import type { Operation } from "../types";
+import type { ArithmeticOperation } from "../types";
 
 export interface ParsedExpression {
   left: string;
@@ -17,7 +17,7 @@ export function splitExpression(expression: string): ParsedExpression {
   return { left: match[1] as string, symbol: match[2] as string, right: match[3] as string };
 }
 
-export const SYMBOL_TO_OPERATION: Record<string, Operation> = {
+export const SYMBOL_TO_OPERATION: Record<string, ArithmeticOperation> = {
   "+": "addition",
   "−": "subtraction",
   "×": "multiplication",
@@ -108,7 +108,7 @@ export function fractionToString(fraction: BigFraction): string {
   return den === 1n ? num.toString() : `${num}/${den}`;
 }
 
-export function computeFraction(operation: Operation, a: BigFraction, b: BigFraction): BigFraction {
+export function computeFraction(operation: ArithmeticOperation, a: BigFraction, b: BigFraction): BigFraction {
   switch (operation) {
     case "addition":
       return { num: a.num * b.den + b.num * a.den, den: a.den * b.den };

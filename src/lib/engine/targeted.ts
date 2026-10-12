@@ -1,5 +1,8 @@
 import { FEATURES, type FeatureId, facetOf, featuresOf } from "@/lib/analysis/facets";
-import { generateQuestion } from "./generate";
+import type { AdvancedSettings } from "./advanced";
+import { DEFAULT_FINANCE_SETTINGS, type FinanceSubtype, isFinanceSubtype } from "./finance";
+import { buildFinanceQuestion, generateQuestion } from "./generate";
+import { generateFinanceSpec } from "./generators/finance";
 import type { Rng } from "./rng";
 import type { Difficulty, NumberType, Operation, Question } from "./types";
 
@@ -47,6 +50,15 @@ export interface TargetedOptions {
   recentKeys?: readonly string[];
   /** Attempts per relaxation tier before loosening the constraints. */
   triesPerTier?: number;
+  /** Operand ranges to stay inside, so adaptive practice honours them too. */
+  advanced?: AdvancedSettings | null;
+}
+
+/** "fin-percent-change" → "percent-change", for finance targets. */
+export function financeSubtypeOfFacet(facet: string | null | undefined): FinanceSubtype | null {
+  if (!facet || !facet.startsWith("fin-")) return null;
+  const subtype = facet.slice(4);
+  return isFinanceSubtype(subtype) ? subtype : null;
 }
 
 /**
@@ -55,8 +67,19 @@ export interface TargetedOptions {
  * facet and feature. If the combination is rare the feature is dropped, then
  * the facet, so a question of the right skill is always returned.
  */
-export function generateTargetedQuestion({ target, rng, id, recentKeys = [], triesPerTier = 40 }: TargetedOptions): Question {
-  const settings = { operations: [target.operation], numberTypes: [target.numberType], difficulty: target.difficulty };
+export function generateTargetedQuestion({ target, rng, id, recentKeys = [], triesPerTier = 40, advanced = null }: TargetedOptions): Question {
+  // Finance families are generated directly rather than sampled for: the
+  // facet names the family, so there is nothing to search for.
+  if (target.operation === "finance") {
+    const spec = generateFinanceSpec({
+      rng,
+      settings: advanced?.finance ?? DEFAULT_FINANCE_SETTINGS,
+      difficulty: target.difficulty,
+      subtype: financeSubtypeOfFacet(target.facet),
+    });
+    return buildFinanceQuestion(id, spec, target.difficulty);
+  }
+  const settings = { operations: [target.operation], numberTypes: [target.numberType], difficulty: target.difficulty, advanced };
   const tiers = [{}, { ignoreFeature: true }, { ignoreFacet: true, ignoreFeature: true }];
   let last: Question | null = null;
   for (const tier of tiers) {

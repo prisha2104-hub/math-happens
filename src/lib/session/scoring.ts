@@ -14,10 +14,22 @@ export function breakdown(attempts: readonly Attempt[]): Breakdown {
   };
 }
 
+/** Middle value, or the mean of the middle two; null when there is nothing to take. */
+export function medianOf(values: readonly number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? (sorted[mid] as number) : ((sorted[mid - 1] as number) + (sorted[mid] as number)) / 2;
+}
+
 /**
  * Whole-session metrics. Per-minute rates use active (unpaused) time and are
  * zero when no time has elapsed, so an empty or instantly-ended session never
  * produces NaN or Infinity.
+ *
+ * `medianCorrectResponseMs` is the honest speed figure: a median ignores the
+ * one question you stared at, and counting only correct answers means racing
+ * through wrong ones cannot make you look faster.
  */
 export function computeMetrics(attempts: readonly Attempt[], elapsedMs: number): SessionMetrics {
   const base = breakdown(attempts);
@@ -28,6 +40,7 @@ export function computeMetrics(attempts: readonly Attempt[], elapsedMs: number):
     elapsedMs,
     correctPerMinute: safeRate(base.correct),
     netScorePerMinute: safeRate(base.correct - base.incorrect),
+    medianCorrectResponseMs: medianOf(attempts.filter((a) => a.correct).map((a) => a.responseMs)),
   };
 }
 

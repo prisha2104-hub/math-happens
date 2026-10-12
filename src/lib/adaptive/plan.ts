@@ -55,6 +55,13 @@ export interface PlanInput {
   focus?: TargetSpec | null;
   /** Drill one technique instead of the adaptive mix. */
   techniqueId?: string | null;
+  /**
+   * Operations and number formats the session may draw from. Set from the
+   * advanced operation / number-format mixes so an adaptive plan can never
+   * practise something the user has excluded; weak and review targets outside
+   * it are dropped.
+   */
+  restrict?: { operations: readonly Operation[]; numberTypes: readonly NumberType[] } | null;
 }
 
 const SHARES = { weak: 0.55, review: 0.25, fresh: 0.2 };
@@ -119,7 +126,10 @@ function freshTargets(pool: PracticePool): PracticeTarget[] {
  * already requires a minimum of evidence, and no single weak skill can take
  * more than 40 % of the weak share.
  */
-export function buildPracticePlan({ attempts, review, pool, now, focus = null, techniqueId = null }: PlanInput): PracticePlan {
+export function buildPracticePlan({ attempts, review, pool, now, focus = null, techniqueId = null, restrict = null }: PlanInput): PracticePlan {
+  const allowed = (target: TargetSpec): boolean =>
+    restrict === null || (restrict.operations.includes(target.operation) && restrict.numberTypes.includes(target.numberType));
+
   if (techniqueId) {
     const technique = techniqueById(techniqueId);
     if (technique) {
@@ -149,7 +159,7 @@ export function buildPracticePlan({ attempts, review, pool, now, focus = null, t
   const report = analyzeWeaknesses(attempts, { now });
   const weakByKey = new Map<string, PracticeTarget>();
   for (const w of report.weaknesses) {
-    if (w.kind !== "skill" || !w.target) continue;
+    if (w.kind !== "skill" || !w.target || !allowed(w.target)) continue;
     if (weakByKey.size >= MAX_WEAK_TARGETS) break;
     const key = targetKey(w.target);
     if (!weakByKey.has(key)) weakByKey.set(key, { target: w.target, weight: w.score, reason: reasonFor(w), label: w.label });
@@ -160,6 +170,7 @@ export function buildPracticePlan({ attempts, review, pool, now, focus = null, t
   const reviewTargets: PracticeTarget[] = [];
   for (const item of due) {
     const target = targetOfItem(item);
+    if (!allowed(target)) continue;
     const key = targetKey(target);
     const existing = weakByKey.get(key);
     if (existing) continue; // already covered by the weak share; the review share goes to other due skills

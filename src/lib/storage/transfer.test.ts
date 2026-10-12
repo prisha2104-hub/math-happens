@@ -92,6 +92,46 @@ describe("repositories: aggregate views", () => {
     expect(await adapter.keys()).toEqual(["someone-else"]);
     expect(await repos.sessions.list()).toEqual([]);
   });
+
+  it("clears practice history while keeping settings", async () => {
+    const { adapter, repos } = await seeded();
+    await adapter.write("someone-else", "1");
+    const settings = await repos.settings.load();
+    expect(settings).not.toBeNull();
+
+    await repos.clearHistory();
+
+    expect(await repos.sessions.list()).toEqual([]);
+    expect(await repos.attempts.listAll()).toEqual([]);
+    expect(await repos.review.load()).toEqual({ items: {}, updatedAt: 0 });
+    expect(await repos.counts()).toEqual({ sessions: 0, attempts: 0, reviewItems: 0 });
+    // Preferences and unrelated records survive.
+    expect(await repos.settings.load()).toEqual(settings);
+    expect(await adapter.read("someone-else")).toBe("1");
+    // Nothing history-shaped is left behind, including per-session attempts.
+    expect((await adapter.keys()).filter((key) => key.startsWith(`${KEY_PREFIX}:attempts:`))).toEqual([]);
+    expect(await adapter.read(SESSIONS_KEY)).toBeNull();
+    expect(await adapter.read(REVIEW_KEY)).toBeNull();
+  });
+
+  it("keeps the migration marker so cleared history cannot be copied back", async () => {
+    const web = new MemoryAdapter();
+    const idb = new MemoryAdapter();
+    const repos = createRepositories(idb, { mirrors: [web] });
+    await repos.saveCompletedSession(makeSummary({ id: "s1", endedAt: 1000 }), [makeAttempt({ id: "s1:a1", sessionId: "s1" })]);
+    // The localStorage backup the one-time migration leaves behind.
+    await copyRecords(idb, web, KEY_PREFIX);
+    await migrateFromWebStorage(web, idb, KEY_PREFIX);
+
+    await repos.clearHistory();
+
+    expect(await idb.read(MIGRATION_MARKER_KEY)).not.toBeNull();
+    expect(await web.read(SESSIONS_KEY)).toBeNull();
+    expect(await web.read(attemptsKey("s1"))).toBeNull();
+    // Running the migration again must not resurrect anything.
+    await migrateFromWebStorage(web, idb, KEY_PREFIX);
+    expect(await repos.sessions.list()).toEqual([]);
+  });
 });
 
 describe("export / import", () => {

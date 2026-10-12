@@ -257,6 +257,9 @@ export function weakSkills(report: WeaknessReport): Weakness[] {
 export function describeTarget(target: TargetSpec): string {
   const facet = target.facet ? facetLabel(target.facet, target.numberType, target.operation) : null;
   const feature = target.feature ? FEATURE_LABELS[target.feature] : null;
-  const base = `${target.operation} · ${target.numberType}s · ${DIFFICULTY_LABELS[target.difficulty]}`;
+  // Finance questions are word problems, so the number format says nothing
+  // useful about them; the family and the difficulty do.
+  const base =
+    target.operation === "finance" ? `finance maths · ${DIFFICULTY_LABELS[target.difficulty]}` : `${target.operation} · ${target.numberType}s · ${DIFFICULTY_LABELS[target.difficulty]}`;
   return [facet ?? feature, base].filter(Boolean).join(" — ");
 }

@@ -346,9 +346,11 @@ describe("multiple choice", () => {
       choice: { correctIndex, selectedIndex: correctIndex },
     });
     expect(chosen.attempts[0]?.choice?.options).toHaveLength(4);
-    // The question stays on screen for the reveal; nothing advances yet.
+    // The question stays on screen for the reveal; nothing advances yet. The
+    // verdict is stamped so the UI can time its hold and ignore a skip that
+    // arrives too soon to be deliberate.
     expect(chosen.question?.id).toBe(question.id);
-    expect(chosen.reveal).toEqual({ selectedIndex: correctIndex });
+    expect(chosen.reveal).toEqual({ selectedIndex: correctIndex, startedAt: T0 + 1_500 });
     expect(chosen.lastFeedback?.correct).toBe(true);
   });
 

@@ -16,13 +16,16 @@ import { type TargetSpec, parseTargetKey } from "@/lib/engine/targeted";
 import { NUMBER_TYPES, OPERATIONS, type NumberType, type Operation } from "@/lib/engine/types";
 import { reviewQueue } from "@/lib/review/schedule";
 import { recordCompletedSession } from "@/lib/services/recordSession";
-import type { Attempt, SessionSummary, TrainerSettings } from "@/lib/session/types";
+import { type Attempt, type SessionSummary, type TrainerSettings, effectiveNumberTypes, effectiveOperations } from "@/lib/session/types";
 import { techniqueById } from "@/lib/techniques/library";
 import { cx } from "@/lib/ui/cx";
 import { ReviewQueue } from "./ReviewQueue";
 import { SessionOptions, type SessionOptionsValue } from "./SessionOptions";
 
 type Screen = { name: "plan" } | { name: "session"; settings: TrainerSettings; run: number } | { name: "results"; summary: SessionSummary; attempts: Attempt[]; saveState: SaveState };
+
+/** Answers before the adaptive lists have anything trustworthy to say. */
+const BASELINE_ANSWERS = 20;
 
 const REASON_TONE: Record<string, string> = {
   "weak-accuracy": "border-bad/30 bg-bad-soft text-bad",
@@ -81,37 +84,49 @@ export function ImprovePage() {
     [options, settings],
   );
 
-  const plan = useMemo(
-    () =>
-      buildPracticePlan({
-        attempts,
-        review,
-        pool: { operations: settings.operations, numberTypes: settings.numberTypes, difficulty: settings.difficulty },
-        now,
-        focus,
-        techniqueId: technique?.id ?? null,
-      }),
-    [attempts, review, settings, now, focus, technique],
-  );
+  const plan = useMemo(() => {
+    // With advanced settings on, the percentages decide what may be practised,
+    // so the plan is restricted to them as well as drawn from them.
+    const operations = effectiveOperations(settings);
+    const numberTypes = effectiveNumberTypes(settings);
+    return buildPracticePlan({
+      attempts,
+      review,
+      pool: { operations, numberTypes, difficulty: settings.difficulty },
+      now,
+      focus,
+      techniqueId: technique?.id ?? null,
+      restrict: settings.advanced.enabled ? { operations, numberTypes } : null,
+    });
+  }, [attempts, review, settings, now, focus, technique]);
   const weakness = useMemo(() => analyzeWeaknesses(attempts, { now }), [attempts, now]);
   const queue = useMemo(() => reviewQueue(review, now), [review, now]);
+  // Two different problems deserve two different lists: questions that are
+  // getting missed, and questions that are right but cost too much time.
+  const missed = useMemo(() => weakness.weaknesses.filter((w) => w.signals.includes("accuracy") || w.signals.includes("repeat")).slice(0, 5), [weakness]);
+  const slow = useMemo(() => weakness.weaknesses.filter((w) => w.signals.includes("speed") && !w.signals.includes("accuracy")).slice(0, 4), [weakness]);
 
-  const start = useCallback(() => {
+  const start = useCallback(
+    (override: Partial<SessionOptionsValue> = {}) => {
+    const options = { ...effectiveOptions, ...override };
     const operations = [...new Set(plan.targets.map((t) => t.target.operation))].sort((a, b) => OPERATIONS.indexOf(a) - OPERATIONS.indexOf(b)) as Operation[];
     const numberTypes = [...new Set(plan.targets.map((t) => t.target.numberType))].sort((a, b) => NUMBER_TYPES.indexOf(a) - NUMBER_TYPES.indexOf(b)) as NumberType[];
     const sessionSettings: TrainerSettings = {
-      mode: effectiveOptions.mode,
-      durationMinutes: effectiveOptions.durationMinutes,
-      questionLimit: effectiveOptions.mode === "untimed" ? effectiveOptions.questionLimit : null,
+      mode: options.mode,
+      durationMinutes: options.durationMinutes,
+      questionLimit: options.mode === "untimed" ? options.questionLimit : null,
       difficulty: settings.difficulty,
       operations,
       numberTypes,
-      answerFormat: effectiveOptions.answerFormat,
+      answerFormat: options.answerFormat,
+      advanced: settings.advanced,
       plan,
     };
     runCounter.current += 1;
     setScreen({ name: "session", settings: sessionSettings, run: runCounter.current });
-  }, [plan, effectiveOptions, settings.difficulty]);
+    },
+    [plan, effectiveOptions, settings.difficulty, settings.advanced],
+  );
 
   const handleFinished = useCallback(
     (summary: SessionSummary, sessionAttempts: Attempt[]) => {
@@ -143,7 +158,7 @@ export function ImprovePage() {
               <Button variant="secondary" size="sm" onClick={() => setScreen({ name: "plan" })}>
                 Back to plan
               </Button>
-              <Button variant="primary" size="sm" onClick={start}>
+              <Button variant="primary" size="sm" onClick={() => start()}>
                 Improve again
               </Button>
             </>
@@ -177,14 +192,21 @@ export function ImprovePage() {
             <section aria-label="Plan">
               <SectionHeading hint={focused ? `Focused on: ${focusLabel}` : "What should I practise next?"}>{focused ? "Focused practice" : "This session's plan"}</SectionHeading>
               {plan.coldStart && !focused && (
-                <div className="mb-3 rounded-xl border border-dashed border-line-strong px-4 py-3 text-sm text-muted">
-                  {attempts.length === 0 ? (
+                <div className="mb-3 flex flex-col gap-2 rounded-xl border border-dashed border-line-strong px-4 py-3 text-sm text-muted">
+                  {attempts.length < BASELINE_ANSWERS ? (
                     <>
-                      There is no history to adapt to yet. This session will use your current Train selection; once you have a few sessions behind you, weak skills and due reviews
-                      take over the plan.{" "}
-                      <Link href="/" className="text-ink underline underline-offset-4">
-                        Prefer to start in Train?
-                      </Link>
+                      <span>
+                        {attempts.length === 0 ? "There is no history to adapt to yet." : `Only ${attempts.length} answers so far — too few to call anything a weakness.`} A short
+                        mixed session sets a baseline, and from then on weak skills and due reviews steer the plan.
+                      </span>
+                      <span className="flex flex-wrap items-center gap-2">
+                        <Button variant="secondary" size="sm" onClick={() => start({ mode: "untimed", questionLimit: BASELINE_ANSWERS })}>
+                          Start a {BASELINE_ANSWERS}-question baseline
+                        </Button>
+                        <Link href="/" className="text-ink underline underline-offset-4">
+                          Prefer to start in Train?
+                        </Link>
+                      </span>
                     </>
                   ) : (
                     "Nothing has enough evidence to count as a weakness yet, so this session uses your current Train selection."
@@ -201,17 +223,38 @@ export function ImprovePage() {
                 <span className="text-xs text-muted">
                   Difficulty follows your Train setting ({settings.difficulty}). Questions are fresh every time — the plan targets skills, not specific questions.
                 </span>
-                <Button variant="primary" size="lg" onClick={start} className="shrink-0 sm:min-w-44">
+                <Button variant="primary" size="lg" onClick={() => start()} className="shrink-0 sm:min-w-44">
                   Start improving
                 </Button>
               </div>
             </section>
 
             {!focused && (
-              <section aria-label="Weaknesses">
-                <SectionHeading hint="The evidence behind the plan. Practice narrows a session to one of these.">What am I struggling with?</SectionHeading>
-                <WeaknessList weaknesses={weakness.weaknesses.slice(0, 6)} watchlist={weakness.watchlist} overallAccuracy={weakness.overallAccuracy} compact />
-              </section>
+              <>
+                <section aria-label="Frequent mistakes">
+                  <SectionHeading hint="Ranked by recent misses. Nothing appears here on the strength of a single wrong answer.">Where the mistakes are</SectionHeading>
+                  {missed.length > 0 ? (
+                    <WeaknessList weaknesses={missed} watchlist={weakness.watchlist} overallAccuracy={weakness.overallAccuracy} compact />
+                  ) : (
+                    <p className="rounded-xl border border-dashed border-line-strong px-4 py-4 text-sm text-muted">
+                      {attempts.length < BASELINE_ANSWERS
+                        ? "Too little history to call anything a weakness. A short mixed session gives these lists something to work from."
+                        : "No kind of question has been missed often enough to count. Keep going and anything that slips will show up here."}
+                    </p>
+                  )}
+                </section>
+
+                <section aria-label="Correct but slow">
+                  <SectionHeading hint="Answered right, but slower than comparable questions — the cheapest points to win back.">Where the time goes</SectionHeading>
+                  {slow.length > 0 ? (
+                    <WeaknessList weaknesses={slow} watchlist={[]} overallAccuracy={weakness.overallAccuracy} compact />
+                  ) : (
+                    <p className="rounded-xl border border-dashed border-line-strong px-4 py-4 text-sm text-muted">
+                      Nothing is dragging: your correct answers take about the same time across the question types you have practised.
+                    </p>
+                  )}
+                </section>
+              </>
             )}
           </div>
 

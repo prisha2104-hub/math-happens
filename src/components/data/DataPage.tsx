@@ -23,7 +23,7 @@ export function DataPage() {
   const [notice, setNotice] = useState<{ tone: "good" | "bad" | "muted"; text: string } | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const [confirmReplace, setConfirmReplace] = useState(false);
-  const [confirmClear, setConfirmClear] = useState(false);
+  const [confirmClear, setConfirmClear] = useState<"history" | "all" | null>(null);
   const [busy, setBusy] = useState(false);
   const fileInput = useRef<HTMLInputElement | null>(null);
 
@@ -100,12 +100,18 @@ export function DataPage() {
     }
   };
 
-  const runClear = async () => {
+  const runClear = async (scope: "history" | "all") => {
     setBusy(true);
     try {
-      await getRepositories().clearAll();
-      setNotice({ tone: "muted", text: "All local Math Happens data was removed." });
-      setConfirmClear(false);
+      const repos = getRepositories();
+      if (scope === "all") {
+        await repos.clearAll();
+        setNotice({ tone: "muted", text: "All local Math Happens data was removed." });
+      } else {
+        await repos.clearHistory();
+        setNotice({ tone: "muted", text: "Practice history, statistics and the review calendar were removed. Your settings were kept." });
+      }
+      setConfirmClear(null);
       refresh();
     } catch {
       setNotice({ tone: "bad", text: "Could not clear storage." });
@@ -202,28 +208,57 @@ export function DataPage() {
       </section>
 
       <section className="mt-8" aria-label="Clear">
-        <SectionHeading hint="Removes sessions, answers, review state and settings from this browser. Export first if you might want them back.">Start over</SectionHeading>
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface px-4 py-4">
-          {!confirmClear ? (
-            <>
-              <p className="text-sm text-ink-soft">Delete all local Math Happens data.</p>
-              <Button variant="danger" onClick={() => setConfirmClear(true)} disabled={busy || !counts || (counts.sessions === 0 && counts.reviewItems === 0)}>
-                Clear all data…
-              </Button>
-            </>
-          ) : (
-            <>
-              <p className="text-sm text-bad">This permanently deletes {counts?.sessions ?? 0} sessions and {counts?.attempts ?? 0} answers.</p>
-              <span className="flex items-center gap-2">
-                <Button variant="danger" onClick={() => void runClear()} disabled={busy}>
-                  Yes, delete everything
+        <SectionHeading hint="Export first if you might want any of it back — neither action can be undone.">Start over</SectionHeading>
+        <div className="divide-y divide-line rounded-xl border border-line bg-surface px-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 py-4">
+            {confirmClear !== "history" ? (
+              <>
+                <p className="text-sm text-ink-soft">
+                  Delete practice history — sessions, answers, statistics and the review calendar — and <span className="text-ink">keep your settings</span>.
+                </p>
+                <Button variant="danger" onClick={() => setConfirmClear("history")} disabled={busy || !counts || (counts.sessions === 0 && counts.reviewItems === 0)}>
+                  Clear practice history…
                 </Button>
-                <Button variant="ghost" onClick={() => setConfirmClear(false)}>
-                  Cancel
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-bad">
+                  This permanently deletes {counts?.sessions ?? 0} sessions, {counts?.attempts ?? 0} answers and {counts?.reviewItems ?? 0} review skills. Settings are kept.
+                </p>
+                <span className="flex items-center gap-2">
+                  <Button variant="danger" onClick={() => void runClear("history")} disabled={busy}>
+                    Yes, clear my history
+                  </Button>
+                  <Button variant="ghost" onClick={() => setConfirmClear(null)}>
+                    Cancel
+                  </Button>
+                </span>
+              </>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 py-4">
+            {confirmClear !== "all" ? (
+              <>
+                <p className="text-sm text-ink-soft">Delete all local Math Happens data, settings included.</p>
+                <Button variant="danger" onClick={() => setConfirmClear("all")} disabled={busy || !counts}>
+                  Clear all data…
                 </Button>
-              </span>
-            </>
-          )}
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-bad">This permanently deletes {counts?.sessions ?? 0} sessions, {counts?.attempts ?? 0} answers and your settings.</p>
+                <span className="flex items-center gap-2">
+                  <Button variant="danger" onClick={() => void runClear("all")} disabled={busy}>
+                    Yes, delete everything
+                  </Button>
+                  <Button variant="ghost" onClick={() => setConfirmClear(null)}>
+                    Cancel
+                  </Button>
+                </span>
+              </>
+            )}
+          </div>
         </div>
       </section>
     </PageShell>

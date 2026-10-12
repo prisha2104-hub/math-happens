@@ -5,6 +5,10 @@ import type { ErrorTag } from "./types";
 
 /** Most specific explanations first; a generic slip is the last resort. */
 const OPEN_ANSWER_PRIORITY: ErrorTag[] = [
+  "wrong-base",
+  "unweighted-average",
+  "compounding-error",
+  "unit-scale",
   "decimal-placement",
   "sign-error",
   "missed-carry",

@@ -31,6 +31,11 @@ export function getStorageAdapter(): DeferredAdapter {
 
 /** Lazily-created repositories backed by the best adapter available in this environment. */
 export function getRepositories(): Repositories {
-  repositories ??= createRepositories(getStorageAdapter());
+  if (repositories === null) {
+    // localStorage is listed as a mirror so clearing also removes the backup
+    // copy the IndexedDB migration leaves behind.
+    const web = createWebStorageAdapter();
+    repositories = createRepositories(getStorageAdapter(), { mirrors: web ? [web] : [] });
+  }
   return repositories;
 }

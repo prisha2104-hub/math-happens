@@ -1,5 +1,5 @@
 import { EMPTY_REVIEW_STATE, type ReviewState } from "@/lib/review/types";
-import { type Attempt, type SessionSummary, type TrainerSettings, coerceSettings } from "@/lib/session/types";
+import { type Attempt, type SessionSummary, type TrainerSettings, coerceSessionSettings, coerceSettings } from "@/lib/session/types";
 import { type Schema, type StorageAdapter, readVersioned, writeVersioned } from "./storage";
 
 export const KEY_PREFIX = "math-happens";
@@ -15,6 +15,16 @@ export const attemptsKey = (sessionId: string) => `${ATTEMPTS_PREFIX}${sessionId
  */
 export const MAX_STORED_SESSIONS = 500;
 
+/**
+ * True for the records that make up practice history: finished sessions, their
+ * attempts, and the spaced-review calendar derived from them. Preferences and
+ * the migration marker are deliberately excluded so clearing history can keep
+ * them.
+ */
+export function isHistoryKey(key: string): boolean {
+  return key === SESSIONS_KEY || key === REVIEW_KEY || key.startsWith(ATTEMPTS_PREFIX);
+}
+
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
 const settingsSchema: Schema<TrainerSettings> = {
@@ -23,11 +33,16 @@ const settingsSchema: Schema<TrainerSettings> = {
   migrate: () => null,
 };
 
-/** Summaries keep their stored settings, coerced so pre-Phase-2 sessions gain `answerFormat: "open"`. */
+/**
+ * Summaries keep their stored settings, coerced so pre-Phase-2 sessions gain
+ * `answerFormat: "open"`. Unlike saved preferences, a session's settings keep
+ * their Improve plan: without it an adaptive session would read back as
+ * ordinary practice and be compared against Train sessions.
+ */
 export function normalizeSummary(item: unknown): SessionSummary | null {
   if (!isRecord(item) || typeof item.id !== "string" || typeof item.endedAt !== "number") return null;
   const raw = item as unknown as SessionSummary;
-  return { ...raw, settings: coerceSettings(raw.settings) };
+  return { ...raw, settings: coerceSessionSettings(raw.settings) };
 }
 
 export const sessionsSchema: Schema<SessionSummary[]> = {
@@ -105,9 +120,25 @@ export interface Repositories {
   counts(): Promise<StorageCounts>;
   /** Remove every Math Happens record. Callers must confirm with the user first. */
   clearAll(): Promise<void>;
+  /**
+   * Remove practice history — sessions, attempts and the review calendar —
+   * while keeping preferences. Callers must confirm with the user first.
+   */
+  clearHistory(): Promise<void>;
 }
 
-export function createRepositories(adapter: StorageAdapter): Repositories {
+export interface RepositoryOptions {
+  /**
+   * Additional stores to purge when clearing, such as the localStorage copy
+   * the IndexedDB migration leaves behind as a backup. Without this a cleared
+   * record could be copied back the next time the migration runs.
+   */
+  mirrors?: readonly StorageAdapter[];
+  /** Sessions kept before the oldest are dropped. Overridable so tests do not have to write 500 records. */
+  maxSessions?: number;
+}
+
+export function createRepositories(adapter: StorageAdapter, { mirrors = [], maxSessions = MAX_STORED_SESSIONS }: RepositoryOptions = {}): Repositories {
   const listSessions = async () => (await readVersioned(adapter, SESSIONS_KEY, sessionsSchema)) ?? [];
   const listAttempts = async (sessionId: string) => (await readVersioned(adapter, attemptsKey(sessionId), attemptsSchema)) ?? [];
   const writeSessions = (sessions: SessionSummary[], at: number) => writeVersioned(adapter, SESSIONS_KEY, sessionsSchema, sessions, at);
@@ -135,7 +166,7 @@ export function createRepositories(adapter: StorageAdapter): Repositories {
     },
     async saveCompletedSession(summary, attempts) {
       const existing = (await listSessions()).filter((s) => s.id !== summary.id);
-      const kept = [...existing, summary].slice(-MAX_STORED_SESSIONS);
+      const kept = [...existing, summary].slice(-maxSessions);
       const dropped = existing.filter((s) => !kept.includes(s));
       await writeVersioned(adapter, attemptsKey(summary.id), attemptsSchema, attempts, summary.endedAt);
       await writeSessions(kept, summary.endedAt);
@@ -144,7 +175,7 @@ export function createRepositories(adapter: StorageAdapter): Repositories {
     async putSessions(sessions, attemptsBySession) {
       const incomingIds = new Set(sessions.map((s) => s.id));
       const existing = (await listSessions()).filter((s) => !incomingIds.has(s.id));
-      const merged = [...existing, ...sessions].sort((a, b) => a.endedAt - b.endedAt).slice(-MAX_STORED_SESSIONS);
+      const merged = [...existing, ...sessions].sort((a, b) => a.endedAt - b.endedAt).slice(-maxSessions);
       const keptIds = new Set(merged.map((s) => s.id));
       for (const session of sessions) {
         if (!keptIds.has(session.id)) continue;
@@ -161,7 +192,16 @@ export function createRepositories(adapter: StorageAdapter): Repositories {
       return { sessions: sessions.length, attempts, reviewItems: Object.keys(review.items).length };
     },
     async clearAll() {
-      for (const key of await adapter.keys()) if (key.startsWith(KEY_PREFIX)) await adapter.remove(key);
+      // Mirrors are purged too, otherwise the next migration would copy the
+      // backup copy of a deleted record straight back in.
+      for (const store of [adapter, ...mirrors]) {
+        for (const key of await store.keys()) if (key.startsWith(KEY_PREFIX)) await store.remove(key);
+      }
+    },
+    async clearHistory() {
+      for (const store of [adapter, ...mirrors]) {
+        for (const key of await store.keys()) if (isHistoryKey(key)) await store.remove(key);
+      }
     },
   };
 }

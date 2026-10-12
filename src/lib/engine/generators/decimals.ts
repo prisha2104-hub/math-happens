@@ -1,6 +1,6 @@
 import { type Rational, compare, fromInteger, mul, rational } from "@/lib/math/rational";
 import type { Rng } from "../rng";
-import type { Difficulty, Operation, RawProblem } from "../types";
+import type { ArithmeticOperation, Difficulty, RawProblem } from "../types";
 
 /**
  * Random decimal with exactly `places` decimal places (final digit non-zero)
@@ -109,7 +109,7 @@ function divisionCandidate(rng: Rng, difficulty: Difficulty): RawProblem {
   }
 }
 
-export function generateDecimalProblem(rng: Rng, operation: Operation, difficulty: Difficulty): RawProblem {
+export function generateDecimalProblem(rng: Rng, operation: ArithmeticOperation, difficulty: Difficulty): RawProblem {
   switch (operation) {
     case "addition":
       return addition(rng, difficulty);

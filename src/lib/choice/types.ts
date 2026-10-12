@@ -16,6 +16,11 @@ export const ERROR_TAGS = [
   "sign-error",
   "estimation-error",
   "partial-product",
+  // Finance-specific slips.
+  "wrong-base",
+  "unweighted-average",
+  "unit-scale",
+  "compounding-error",
   "unclassified",
 ] as const;
 
@@ -32,6 +37,10 @@ export const ERROR_TAG_LABELS: Record<ErrorTag, string> = {
   "sign-error": "Sign error",
   "estimation-error": "Estimation error",
   "partial-product": "Partial product",
+  "wrong-base": "Wrong base",
+  "unweighted-average": "Weights ignored",
+  "unit-scale": "Wrong unit scale",
+  "compounding-error": "Compounding error",
   unclassified: "Unclassified",
 };
 
@@ -46,6 +55,10 @@ export const ERROR_TAG_DESCRIPTIONS: Record<ErrorTag, string> = {
   "sign-error": "The magnitude was right but the sign was wrong.",
   "estimation-error": "A rounded, approximate value was given instead of the exact result.",
   "partial-product": "Only part of a split multiplication was carried through.",
+  "wrong-base": "The percentage was taken against the wrong starting figure.",
+  "unweighted-average": "The parts were averaged as if they carried equal weight.",
+  "unit-scale": "Right digits, wrong unit — percent, percentage points and basis points differ by a factor of 100.",
+  "compounding-error": "Returns were added together instead of compounded.",
   unclassified: "The answer does not match a recognisable mistake pattern.",
 };
 

@@ -1,6 +1,6 @@
 import { fromInteger } from "@/lib/math/rational";
 import type { Rng } from "../rng";
-import type { Difficulty, Operation, RawProblem } from "../types";
+import type { ArithmeticOperation, Difficulty, RawProblem } from "../types";
 
 /** Integer in [min, max] that is not a multiple of ten (keeps problems meaningful). */
 function nonRoundInt(rng: Rng, min: number, max: number): number {
@@ -94,7 +94,7 @@ function division(rng: Rng, difficulty: Difficulty): RawProblem {
   }
 }
 
-export function generateIntegerProblem(rng: Rng, operation: Operation, difficulty: Difficulty): RawProblem {
+export function generateIntegerProblem(rng: Rng, operation: ArithmeticOperation, difficulty: Difficulty): RawProblem {
   switch (operation) {
     case "addition":
       return addition(rng, difficulty);

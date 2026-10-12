@@ -3,12 +3,14 @@ import { evaluateAnswer } from "@/lib/answer/validate";
 import { buildChoiceSet } from "@/lib/choice/choiceSet";
 import { classifyOpenAnswer } from "@/lib/choice/classify";
 import type { ChoiceSet } from "@/lib/choice/types";
-import { RECENT_KEY_WINDOW, formatOperand, generateQuestion } from "@/lib/engine/generate";
+import { activeAdvanced } from "@/lib/engine/advanced";
+import { RECENT_KEY_WINDOW, answerDisplay, generateQuestion } from "@/lib/engine/generate";
 import { createRng } from "@/lib/engine/rng";
 import { generateTargetedQuestion } from "@/lib/engine/targeted";
 import type { Question } from "@/lib/engine/types";
 import type { Rational } from "@/lib/math/rational";
 import { generateTechniqueQuestion, techniqueById } from "@/lib/techniques/library";
+import { type MixDraw, buildMixSchedule, sampleMix } from "./mix";
 import { breakdownByNumberType, breakdownByOperation, computeMetrics } from "./scoring";
 import {
   type Attempt,
@@ -27,6 +29,8 @@ export interface Feedback {
   expression: string;
   correctAnswerText: string;
   userInput: string;
+  /** Worked steps for a word problem, shown after a miss. */
+  explanation?: readonly string[];
 }
 
 /**
@@ -46,12 +50,22 @@ export interface SessionState {
   choices: ChoiceSet | null;
   /**
    * Multiple choice only: after an option is picked the question stays on
-   * screen with the verdict shown until `advance`. No input is accepted
-   * meanwhile, which is what prevents double submission.
+   * screen with the verdict shown until `advance`. No answer is accepted
+   * meanwhile, which is what prevents double submission. `startedAt` is the
+   * monotonic time the verdict appeared, so the UI can both time the
+   * automatic advance and ignore a skip that arrives too fast to be
+   * deliberate (a double-click on the option that was just picked).
    */
-  reveal: { selectedIndex: number } | null;
+  reveal: { selectedIndex: number; startedAt: number } | null;
   /** Number of questions generated so far (used for ids). */
   questionCount: number;
+  /**
+   * Fixed operation / number-format slot per question, built once for
+   * sessions of a known length so the advanced percentages are matched
+   * exactly. null when the session is open-ended (questions are then drawn by
+   * weight) or when advanced settings are off.
+   */
+  mixSchedule: MixDraw[] | null;
   recentKeys: string[];
   attempts: Attempt[];
   startedAt: number;
@@ -108,7 +122,12 @@ export function isTimeUp(state: SessionState, now: number): boolean {
   return remaining !== null && remaining <= 0;
 }
 
-type GenerationInput = Pick<SessionState, "id" | "settings" | "rngState" | "questionCount" | "recentKeys">;
+type GenerationInput = Pick<SessionState, "id" | "settings" | "rngState" | "questionCount" | "recentKeys" | "mixSchedule">;
+
+/** Questions a session will ask in total, or null when it is open-ended. */
+export function plannedQuestionCount(settings: TrainerSettings): number | null {
+  return settings.mode === "untimed" ? settings.questionLimit : null;
+}
 
 function nextQuestion(state: GenerationInput): {
   question: Question;
@@ -121,14 +140,27 @@ function nextQuestion(state: GenerationInput): {
   const questionCount = state.questionCount + 1;
   const id = `${state.id}:q${questionCount}`;
   const plan = state.settings.plan;
+  const advanced = activeAdvanced(state.settings.advanced);
   let question: Question;
   if (plan && plan.targets.length > 0) {
-    // Improve mode: draw from the plan's weighted targets instead of the plain selection.
+    // Improve mode: draw from the plan's weighted targets instead of the plain
+    // selection. The advanced ranges still apply, so adaptive practice cannot
+    // leave the numbers the user chose.
     const picked = pickTarget(plan, rng);
     const technique = picked.techniqueId ? techniqueById(picked.techniqueId) : null;
     question = technique
       ? generateTechniqueQuestion(technique, rng, id, state.recentKeys)
-      : generateTargetedQuestion({ target: picked.target, rng, id, recentKeys: state.recentKeys });
+      : generateTargetedQuestion({ target: picked.target, rng, id, recentKeys: state.recentKeys, advanced });
+  } else if (advanced) {
+    // A fixed-length session follows its pre-built schedule; open-ended
+    // practice samples the same percentages by weight.
+    const draw = state.mixSchedule?.[state.questionCount] ?? sampleMix(advanced, rng);
+    question = generateQuestion({
+      settings: { ...state.settings, operations: [draw.operation], numberTypes: [draw.numberType] },
+      rng,
+      id,
+      recentKeys: state.recentKeys,
+    });
   } else {
     question = generateQuestion({ settings: state.settings, rng, id, recentKeys: state.recentKeys });
   }
@@ -138,7 +170,14 @@ function nextQuestion(state: GenerationInput): {
 }
 
 export function createSession(settings: TrainerSettings, { id, seed, now, wallClock }: CreateSessionOptions): SessionState {
-  const base = { id, settings, rngState: seed >>> 0, questionCount: 0, recentKeys: [] as string[] };
+  const advanced = activeAdvanced(settings.advanced);
+  const planned = plannedQuestionCount(settings);
+  // The schedule is drawn from the session's own RNG, so the whole session
+  // stays reproducible from its seed. When no schedule is needed the RNG is
+  // left untouched and the question stream is bit-for-bit what it always was.
+  const rng = createRng(seed >>> 0);
+  const mixSchedule = advanced && planned !== null && !settings.plan ? buildMixSchedule(advanced, planned, rng) : null;
+  const base = { id, settings, rngState: rng.state, questionCount: 0, recentKeys: [] as string[], mixSchedule };
   const generated = nextQuestion(base);
   return {
     ...base,
@@ -196,7 +235,7 @@ function recordAttempt(state: SessionState, question: Question, answer: Answer, 
     correctAnswerText: question.answerText,
     userInput: answer.userInput,
     userAnswer: answer.value,
-    userAnswerText: formatOperand(answer.value, question.numberType),
+    userAnswerText: answerDisplay(question, answer.value),
     correct: answer.correct,
     responseMs: Math.max(0, elapsed - state.questionShownAtElapsed),
     submittedAt: stamps.wallClock,
@@ -211,6 +250,8 @@ function recordAttempt(state: SessionState, question: Question, answer: Answer, 
     expression: question.expression,
     correctAnswerText: question.answerText,
     userInput: attempt.userInput,
+    // Only after a miss: a correct answer needs no working.
+    ...(attempt.correct ? {} : { explanation: question.explanation }),
   };
   return { state: { ...state, attempts: [...state.attempts, attempt], lastFeedback: feedback, inputError: null }, elapsed };
 }
@@ -258,7 +299,7 @@ function choose(state: SessionState, index: number, stamps: Timestamps): Session
   );
   if (limitReached(recorded.state)) return finish(recorded.state, "limit", stamps);
   // Keep the question and options on screen so the verdict can be shown.
-  return { ...recorded.state, reveal: { selectedIndex: index } };
+  return { ...recorded.state, reveal: { selectedIndex: index, startedAt: stamps.now } };
 }
 
 function advance(state: SessionState, stamps: Timestamps): SessionState {

@@ -739,6 +739,9 @@ export function techniquesByCategory(category: TechniqueCategory): Technique[] {
 
 /** Techniques that make this question easier, most specific first (registry order). */
 export function techniquesFor(question: Question): Technique[] {
+  // The library is about column arithmetic; finance word problems carry their
+  // own worked explanation instead, so none of these are offered for them.
+  if (question.operation === "finance") return [];
   return TECHNIQUES.filter((t) => t.applies(question));
 }
 

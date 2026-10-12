@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { buildQuestion, generateQuestion } from "@/lib/engine/generate";
 import { createRng } from "@/lib/engine/rng";
-import { DIFFICULTIES, NUMBER_TYPES, OPERATIONS, type Question } from "@/lib/engine/types";
+import { ARITHMETIC_OPERATIONS, type ArithmeticOperation, DIFFICULTIES, NUMBER_TYPES, type Question } from "@/lib/engine/types";
 import { equals, rational, terminatingDecimalPlaces } from "@/lib/math/rational";
 import { parseFractionString, parseDecimalString, decimalsEqual } from "@/lib/engine/testing/independent-arithmetic";
 import { CHOICE_COUNT, buildChoiceSet, choiceValue, isCorrectChoice, keyToChoiceIndex, selectDistractors } from "./choiceSet";
 import { addWithoutCarry, distractorCandidates, isSensibleDistractor, subWithoutBorrow } from "./distractors";
 import { ERROR_TAGS } from "./types";
 
-function fixed(op: Question["operation"], type: Question["numberType"], a: [number, number], b: [number, number]): Question {
+function fixed(op: ArithmeticOperation, type: Question["numberType"], a: [number, number], b: [number, number]): Question {
   return buildQuestion("q", { variant: "test", operands: [rational(...a), rational(...b)] }, op, type, "medium");
 }
 
@@ -78,7 +78,7 @@ describe("illustrative distractor sets", () => {
 
 describe("buildChoiceSet across every combination", () => {
   for (const numberType of NUMBER_TYPES) {
-    for (const operation of OPERATIONS) {
+    for (const operation of ARITHMETIC_OPERATIONS) {
       for (const difficulty of DIFFICULTIES) {
         it(`${numberType} ${operation} ${difficulty}: four exact, distinct, sensible options`, () => {
           const rng = createRng(0xabc123);
@@ -134,7 +134,7 @@ describe("buildChoiceSet across every combination", () => {
     const counts = [0, 0, 0, 0];
     const runs = 4000;
     for (let i = 0; i < runs; i += 1) {
-      const question = generateQuestion({ settings: { operations: OPERATIONS, numberTypes: NUMBER_TYPES, difficulty: "medium" }, rng, id: `q${i}` });
+      const question = generateQuestion({ settings: { operations: ARITHMETIC_OPERATIONS, numberTypes: NUMBER_TYPES, difficulty: "medium" }, rng, id: `q${i}` });
       const index = buildChoiceSet(question, rng).correctIndex;
       counts[index] = (counts[index] ?? 0) + 1;
     }
@@ -163,7 +163,7 @@ describe("buildChoiceSet across every combination", () => {
   it("never shows equivalent fractions as different options", () => {
     const rng = createRng(77);
     for (let i = 0; i < 500; i += 1) {
-      const question = generateQuestion({ settings: { operations: OPERATIONS, numberTypes: ["fraction"], difficulty: "hard" }, rng, id: `q${i}` });
+      const question = generateQuestion({ settings: { operations: ARITHMETIC_OPERATIONS, numberTypes: ["fraction"], difficulty: "hard" }, rng, id: `q${i}` });
       const set = buildChoiceSet(question, rng);
       const reduced = set.options.map((o) => `${rational(o.value.num, o.value.den).num}/${rational(o.value.num, o.value.den).den}`);
       expect(new Set(reduced).size).toBe(4);
@@ -173,7 +173,7 @@ describe("buildChoiceSet across every combination", () => {
   it("is deterministic for a seed", () => {
     const make = () => {
       const rng = createRng(9);
-      const q = generateQuestion({ settings: { operations: OPERATIONS, numberTypes: NUMBER_TYPES, difficulty: "hard" }, rng, id: "q" });
+      const q = generateQuestion({ settings: { operations: ARITHMETIC_OPERATIONS, numberTypes: NUMBER_TYPES, difficulty: "hard" }, rng, id: "q" });
       return buildChoiceSet(q, rng).options.map((o) => o.text);
     };
     expect(make()).toEqual(make());

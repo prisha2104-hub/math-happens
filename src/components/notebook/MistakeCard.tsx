@@ -36,6 +36,9 @@ export function MistakeCard({ attempt, repeatCount = 1 }: MistakeCardProps) {
   const [open, setOpen] = useState(false);
   const question = useMemo(() => questionFromAttempt(attempt), [attempt]);
   const techniques = useMemo(() => (question ? techniquesFor(question).slice(0, 2) : []), [question]);
+  // Word problems carry their own worked steps, re-derived from the stored
+  // question rather than kept as text.
+  const explanation = question?.explanation ?? [];
   const facet = facetOf(attempt.meta.variant);
   const features = featuresOf(attempt);
   const tag = attempt.errorTag ?? "unclassified";
@@ -56,6 +59,7 @@ export function MistakeCard({ attempt, repeatCount = 1 }: MistakeCardProps) {
               you answered <span className="text-bad line-through decoration-bad/60">{attempt.userInput}</span>
             </span>
           </div>
+          {question?.prompt && <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-ink-soft">{question.prompt}</p>}
           <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
             <Chip>
               <span className="font-mono text-accent">{OPERATION_SYMBOLS[attempt.operation]}</span> {OPERATION_LABELS[attempt.operation]}
@@ -165,12 +169,18 @@ export function MistakeCard({ attempt, repeatCount = 1 }: MistakeCardProps) {
           </div>
           <div>
             <h4 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">A faster way</h4>
-            {techniques.length === 0 ? (
+            {explanation.length > 0 ? (
+              <ol className="mt-1 list-decimal space-y-1 rounded-xl border border-line bg-paper px-4 py-3 pl-8 text-sm leading-relaxed text-ink">
+                {explanation.map((step, i) => (
+                  <li key={i}>{step}</li>
+                ))}
+              </ol>
+            ) : techniques.length === 0 ? (
               <p className="mt-1 text-sm text-muted">No library technique targets this exact shape of question yet.</p>
             ) : (
               <div className="mt-1 space-y-3">
                 {techniques.map((t) => {
-                  const explanation = question ? t.explain(question) : null;
+                  const worked = question ? t.explain(question) : null;
                   return (
                     <div key={t.id} className="rounded-xl border border-line bg-paper px-4 py-3">
                       <div className="flex items-start justify-between gap-3">
@@ -182,9 +192,9 @@ export function MistakeCard({ attempt, repeatCount = 1 }: MistakeCardProps) {
                           Practice this
                         </Link>
                       </div>
-                      {explanation && (
+                      {worked && (
                         <ol className="tabular mt-2 list-decimal space-y-1 pl-5 font-mono text-xs text-ink">
-                          {explanation.steps.map((step, i) => (
+                          {worked.steps.map((step, i) => (
                             <li key={i}>{step}</li>
                           ))}
                         </ol>

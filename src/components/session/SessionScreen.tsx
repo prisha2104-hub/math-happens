@@ -6,7 +6,7 @@ import { Wordmark } from "@/components/ui/Wordmark";
 import { useSession } from "@/hooks/useSession";
 import { formatClock } from "@/lib/math/format";
 import { summarizeSession } from "@/lib/session/reducer";
-import { type Attempt, type SessionSummary, type TrainerSettings, timeLimitMs } from "@/lib/session/types";
+import { type Attempt, type SessionSummary, type TrainerSettings, effectiveNumberTypes, effectiveOperations, timeLimitMs } from "@/lib/session/types";
 import { keyToChoiceIndex } from "@/lib/choice/choiceSet";
 import { cx } from "@/lib/ui/cx";
 import { AnswerInput } from "./AnswerInput";
@@ -20,8 +20,10 @@ interface SessionScreenProps {
 }
 
 function needsSymbolKeys(settings: TrainerSettings): boolean {
-  // Fractions need "/", and hard subtraction can produce negative answers needing "-".
-  return settings.numberTypes.includes("fraction") || (settings.difficulty === "hard" && settings.operations.includes("subtraction"));
+  const operations = effectiveOperations(settings);
+  // Fractions need "/", hard subtraction can produce negative answers needing
+  // "-", and finance answers can be negative or carry a unit.
+  return effectiveNumberTypes(settings).includes("fraction") || operations.includes("finance") || (settings.difficulty === "hard" && operations.includes("subtraction"));
 }
 
 interface Draft {
@@ -29,8 +31,11 @@ interface Draft {
   text: string;
 }
 
+/** Pressed on their own these keys mean nothing, so they never count as "continue". */
+const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock", "NumLock", "ScrollLock", "ContextMenu"]);
+
 export function SessionScreen({ settings, onFinished }: SessionScreenProps) {
-  const { state, elapsed, remaining, submit, choose, togglePause, resume, end, clearInputError } = useSession(settings);
+  const { state, elapsed, remaining, submit, choose, revealing, skipReveal, togglePause, resume, end, clearInputError } = useSession(settings);
   // The typed answer belongs to one question; a new question therefore starts blank.
   const [draft, setDraft] = useState<Draft | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -57,7 +62,8 @@ export function SessionScreen({ settings, onFinished }: SessionScreenProps) {
   }, [running, multipleChoice, question?.id, focusInput]);
 
   // Escape toggles pause without stealing digits from the answer field; in
-  // multiple choice the digits 1–4 pick an option.
+  // multiple choice the digits 1–4 pick an option and, once a verdict is
+  // showing, any key moves straight on to the next question.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -65,7 +71,16 @@ export function SessionScreen({ settings, onFinished }: SessionScreenProps) {
         togglePause();
         return;
       }
-      if (!canChoose || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      // A held-down key must not run through several questions, and Tab still
+      // belongs to focus navigation.
+      if (event.repeat || event.key === "Tab" || MODIFIER_KEYS.has(event.key)) return;
+      if (revealing) {
+        event.preventDefault();
+        skipReveal();
+        return;
+      }
+      if (!canChoose) return;
       const index = keyToChoiceIndex(event.key);
       if (index !== null) {
         event.preventDefault();
@@ -74,7 +89,7 @@ export function SessionScreen({ settings, onFinished }: SessionScreenProps) {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [togglePause, canChoose, choose]);
+  }, [togglePause, canChoose, choose, revealing, skipReveal]);
 
   useEffect(() => {
     if (state.status !== "finished" || reported.current) return;
@@ -132,7 +147,7 @@ export function SessionScreen({ settings, onFinished }: SessionScreenProps) {
       {limit !== null && (
         <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-line" role="presentation">
           <div
-            className={cx("h-full rounded-full transition-[width] duration-100 ease-linear", lowTime ? "bg-accent" : "bg-ink")}
+            className={cx("h-full rounded-full transition-[width] duration-300 ease-linear", lowTime ? "bg-accent" : "bg-ink")}
             style={{ width: `${Math.max(0, Math.min(100, ((remaining ?? 0) / limit) * 100))}%` }}
           />
         </div>
@@ -141,7 +156,10 @@ export function SessionScreen({ settings, onFinished }: SessionScreenProps) {
       <section
         className="flex flex-1 flex-col items-center justify-center gap-8 py-14 sm:py-20"
         onClick={(event) => {
-          if (running && !(event.target instanceof HTMLButtonElement)) focusInput();
+          // `revealing` is read from the render this handler was created in,
+          // so the click that picked an option cannot also skip its verdict.
+          if (revealing) skipReveal();
+          else if (running && !multipleChoice && !(event.target instanceof HTMLButtonElement)) focusInput();
         }}
       >
         {paused ? (
@@ -163,7 +181,13 @@ export function SessionScreen({ settings, onFinished }: SessionScreenProps) {
 
         {multipleChoice ? (
           state.choices && !paused ? (
-            <ChoiceOptions choices={state.choices} selectedIndex={state.reveal?.selectedIndex ?? null} disabled={!running} onChoose={choose} />
+            <ChoiceOptions
+              choices={state.choices}
+              selectedIndex={state.reveal?.selectedIndex ?? null}
+              disabled={!running}
+              onChoose={choose}
+              onContinue={skipReveal}
+            />
           ) : null
         ) : (
           <AnswerInput
@@ -183,13 +207,20 @@ export function SessionScreen({ settings, onFinished }: SessionScreenProps) {
 
         <p className="text-center text-xs text-muted">
           {multipleChoice ? (
-            <>
-              Press <kbd className="font-mono">1</kbd>–<kbd className="font-mono">4</kbd> or tap an option · <kbd className="font-mono">Esc</kbd> to pause
-            </>
+            revealing ? (
+              <>
+                Any key or click for the next question · <kbd className="font-mono">Esc</kbd> to pause
+              </>
+            ) : (
+              <>
+                Press <kbd className="font-mono">1</kbd>–<kbd className="font-mono">4</kbd> or tap an option · <kbd className="font-mono">Esc</kbd> to pause
+              </>
+            )
           ) : (
             <>
               <kbd className="font-mono">Enter</kbd> to submit · <kbd className="font-mono">Esc</kbd> to pause · fractions as{" "}
               <span className="font-mono">3/4</span>
+              {question?.unit !== undefined && question.unit !== "plain" && <> · units optional, so 15 and 15% both count</>}
             </>
           )}
         </p>
